@@ -1,0 +1,154 @@
+name: Performance Regression Tests
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main ]
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  performance-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Full history for comparisons
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake sqlite3 libsqlite3-dev bc python3
+        sudo apt-get install -y valgrind linux-tools-common linux-tools-generic
+    
+    - name: Cache test data
+      uses: actions/cache@v3
+      with:
+        path: perf_results/*.db
+        key: ${{ runner.os }}-perf-data-${{ hashFiles('scripts/perf_regression.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-perf-data-
+    
+    - name: Download baseline
+      uses: actions/download-artifact@v3
+      with:
+        name: performance-baseline
+        path: perf_results
+      continue-on-error: true
+    
+    - name: Build extension
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(nproc)
+    
+    - name: Run performance tests
+      run: |
+        ./scripts/perf_regression.sh test
+      env:
+        REGRESSION_THRESHOLD: 5  # 5% threshold for CI
+    
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: perf_results/current.json
+    
+    - name: Update baseline (main branch only)
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        cp perf_results/current.json perf_results/baseline.json
+    
+    - name: Upload new baseline
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-baseline
+        path: perf_results/baseline.json
+    
+    - name: Comment PR results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const results = JSON.parse(fs.readFileSync('perf_results/current.json', 'utf8'));
+          
+          let comment = '## Performance Test Results\n\n';
+          comment += '| Test | Time (ms) | Status |\n';
+          comment += '|------|-----------|--------|\n';
+          
+          results.forEach(test => {
+            const status = test.regression ? '🔴 Regression' : '✅ Pass';
+            comment += `| ${test.test} | ${test.avg.toFixed(3)} | ${status} |\n`;
+          });
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  memory-profile:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake sqlite3 libsqlite3-dev valgrind
+    
+    - name: Build debug version
+      run: |
+        mkdir -p build-debug
+        cd build-debug
+        cmake .. -DCMAKE_BUILD_TYPE=Debug
+        make -j$(nproc)
+    
+    - name: Run Valgrind memory check
+      run: |
+        valgrind --leak-check=full --show-leak-kinds=all \
+                 --track-origins=yes --xml=yes --xml-file=valgrind.xml \
+                 ./build-debug/tests/test_graph
+      continue-on-error: true
+    
+    - name: Parse Valgrind results
+      run: |
+        python3 - <<EOF
+        import xml.etree.ElementTree as ET
+        
+        tree = ET.parse('valgrind.xml')
+        root = tree.getroot()
+        
+        errors = root.findall('.//error')
+        print(f"Memory errors found: {len(errors)}")
+        
+        for error in errors[:5]:  # Show first 5 errors
+            kind = error.find('kind').text
+            what = error.find('what').text if error.find('what') is not None else 'Unknown'
+            print(f"\n{kind}: {what}")
+            
+            # Print stack trace
+            stack = error.find('stack')
+            if stack:
+                for frame in stack.findall('frame')[:3]:
+                    fn = frame.find('fn')
+                    if fn is not None:
+                        print(f"  at {fn.text}")
+        EOF
+    
+    - name: Upload Valgrind report
+      uses: actions/upload-artifact@v3
+      with:
+        name: valgrind-report
+        path: valgrind.xml

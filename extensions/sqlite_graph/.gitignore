@@ -1,0 +1,78 @@
+# Build artifacts
+build/
+obj/
+*.o
+*.so
+*.a
+*.dll
+*.dylib
+
+# Test executables
+test_*
+simple_test
+simple_string_test
+debug_test
+
+# Build directories
+build/
+obj/
+
+# Coverage reports
+coverage/
+*.gcno
+*.gcda
+*.gcov
+
+# Performance and analysis results
+perf_results/
+analysis_results/
+security_audit/
+self_review_verification/
+
+# Memory debugging
+*.txt
+helgrind_results.txt
+memory_leak_report.txt
+allocs.txt
+frees.txt
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*_backup/
+src_backup/
+
+# Log files
+*.log
+test_output.txt
+
+# IDE files
+compile_commands.json
+
+# Developer-specific files and directories
+.claude/
+.gemini/
+.opencode/
+AGENT.md
+plan.md
+progress.md
+fix-phase-*.md
+*_backup.*
+COMPLETION_PLAN.md
+IMPLEMENTATION_*.md
+SELF_REVIEW.md
+virtual_tables_explanation.md
+
+# Coverage reports
+coverage_report.*

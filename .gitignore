@@ -1,0 +1,69 @@
+# Binaries and executables
+*.so
+*.dylib
+*.a
+*.o
+*.exe
+*_test
+*test*
+debug_*
+minimal_count_test
+
+# Build directories and dependencies
+build/
+_build/
+_deps/
+*.dSYM/
+
+# Benchmark executables
+benchmarks/*_benchmark
+benchmarks/ldbc_benchmark
+benchmarks/memory_profiler
+benchmarks/performance_regression
+benchmarks/scalability_test
+
+# Large test executables
+extensions/sqlite_graph/tests/*
+extensions/sqlite_graph/benchmarks/*
+extensions/sqlite_graph/minimal_count_test
+
+# SQLite specific
+*.db
+*.sqlite
+*.sqlite3
+
+# Archives and tarballs
+*.tar.gz
+*.zip
+
+# Debug symbols
+*.dSYM/
+
+# Generated files
+sqlite3
+sqlite3.c
+sqlite3.o
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Log files
+*.log

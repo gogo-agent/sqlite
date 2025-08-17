@@ -1,0 +1,117 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitize: [0, 1]
+      fail-fast: false
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make sqlite3 libsqlite3-dev bc
+
+    - name: Cache SQLite amalgamation build
+      uses: actions/cache@v3
+      with:
+        path: |
+          _deps/sqlite-src/sqlite3.o
+          _deps/Unity-2.5.2/src/unity.o
+          build/libsqlite3.a
+          build/libunity.a
+          build/obj
+        key: ${{ runner.os }}-sqlite-deps-${{ hashFiles('_deps/sqlite-src/sqlite3.c', '_deps/Unity-2.5.2/src/unity.c') }}-sanitize${{ matrix.sanitize }}
+        restore-keys: |
+          ${{ runner.os }}-sqlite-deps-${{ hashFiles('_deps/sqlite-src/sqlite3.c', '_deps/Unity-2.5.2/src/unity.c') }}-
+          ${{ runner.os }}-sqlite-deps-
+
+    - name: Build project
+      run: |
+        if [ ${{ matrix.sanitize }} -eq 1 ]; then
+          export SANITIZE=1
+          echo "Building with sanitizers enabled"
+        else
+          echo "Building without sanitizers"
+        fi
+        make
+      env:
+        SANITIZE: ${{ matrix.sanitize }}
+
+    - name: Run test suite
+      run: |
+        ./tests/run_all_tests.sh --output=tap
+      env:
+        SANITIZE: ${{ matrix.sanitize }}
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results-sanitize${{ matrix.sanitize }}
+        path: |
+          tests/test-results.xml
+          tests/*.tap
+        if-no-files-found: ignore
+
+  # Additional job for memory profiling on main branch
+  memory-check:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies with Valgrind
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make sqlite3 libsqlite3-dev valgrind
+
+    - name: Cache SQLite build for memory check
+      uses: actions/cache@v3
+      with:
+        path: |
+          _deps/sqlite-src/sqlite3.o
+          _deps/Unity-2.5.2/src/unity.o
+          build/libsqlite3.a
+          build/libunity.a
+          build/obj
+        key: ${{ runner.os }}-sqlite-deps-debug-${{ hashFiles('_deps/sqlite-src/sqlite3.c', '_deps/Unity-2.5.2/src/unity.c') }}
+
+    - name: Build with debug symbols
+      run: |
+        CFLAGS="-g -O0" make
+
+    - name: Run memory checks
+      run: |
+        # Run a subset of tests under Valgrind to check for memory leaks
+        cd tests
+        for test in test_cypher_basic test_write_simple; do
+          if [ -f "../build/tests/$test" ]; then
+            echo "Running Valgrind on $test"
+            valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes \
+                     --xml=yes --xml-file=valgrind-$test.xml \
+                     ../build/tests/$test || true
+          fi
+        done
+
+    - name: Upload Valgrind reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: valgrind-reports
+        path: tests/valgrind-*.xml
+        if-no-files-found: ignore
